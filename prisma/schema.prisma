@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum PurchaseStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+model User {
+  id        String     @id @default(uuid())
+  email     String     @unique
+  role      Role       @default(USER)
+  purchases Purchase[]
+  metadata  Json?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+}
+
+model Game {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  slug        String    @unique
+  imageUrl    String?
+  description String?
+  products    Product[]
+  metadata    Json?
+}
+
+model Product {
+  id          String     @id @default(uuid())
+  title       String
+  description String?
+  priceNpr    Float
+  imageUrl    String?
+  isActive    Boolean    @default(true)
+  gameId      String
+  game        Game       @relation(fields: [gameId], references: [id])
+  purchases   Purchase[]
+  coupons     Coupon[]
+  metadata    Json?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Purchase {
+  id              String         @id @default(uuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id])
+  productId       String
+  product         Product        @relation(fields: [productId], references: [id])
+  amountPaidNpr   Float
+  status          PurchaseStatus @default(PENDING)
+  paymentProofUrl String?
+  ingameId        String
+  ingameName      String?
+  couponId        String?
+  coupon          Coupon?        @relation(fields: [couponId], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+model Coupon {
+  id              String     @id @default(uuid())
+  code            String     @unique
+  discountPercent Float?
+  productId       String?
+  product         Product?   @relation(fields: [productId], references: [id])
+  purchases       Purchase[]
+  createdAt       DateTime   @default(now())
+}
