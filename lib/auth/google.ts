@@ -3,7 +3,7 @@ import { authConfig } from "@/lib/auth/config";
 export type GoogleIdentity = {
   sub: string;
   email: string;
-  email_verified: boolean;
+  email_verified: boolean | string;
   name?: string;
   picture?: string;
   aud: string;

@@ -31,19 +31,20 @@ export async function POST(request: Request) {
   }
 
   const email = identity.email.trim().toLowerCase();
+  const emailVerified = identity.email_verified === true || identity.email_verified === "true";
 
   const user = await prisma.user.upsert({
     where: { email },
     update: {
       googleId: identity.sub,
-      emailVerified: identity.email_verified,
+      emailVerified,
       name: identity.name ?? undefined,
       avatarUrl: identity.picture ?? undefined,
     },
     create: {
       email,
       googleId: identity.sub,
-      emailVerified: identity.email_verified,
+      emailVerified,
       name: identity.name,
       avatarUrl: identity.picture,
     },

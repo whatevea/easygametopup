@@ -46,6 +46,7 @@ Use these in `.env` and production secrets manager:
 - `SECRET_KEY` (fallback only)
 - `APP_NAME`
 - `GOOGLE_CLIENT_ID`
+- `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (required for Google button in login/register pages)
 
 Notes:
 - `JWT_SECRET` is preferred over `SECRET_KEY`.
