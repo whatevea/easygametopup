@@ -1,36 +1,209 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# EasyGameTopUp - Authentication Flow
 
-## Getting Started
+This project now includes a production-style authentication flow using Next.js API routes, HTTP-only cookies, short-lived JWT access tokens, refresh token rotation, middleware-based protection, and Google sign-in.
 
-First, run the development server:
+## Security Practices Implemented
 
+- `HTTP-only cookies` for access and refresh tokens (prevents JavaScript token theft).
+- `Secure + SameSite=Lax` cookies (mitigates CSRF in modern browser flows).
+- `Server-side verification` in middleware and API handlers (prevents client tampering).
+- `Short-lived access token` (15 minutes) + refresh rotation (7 days).
+- `Refresh token hashing` in DB (`AuthSession.tokenHash`) for safer storage.
+
+## What Is Included
+
+### Auth Routes
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `POST /api/auth/google`
+- `POST /api/auth/refresh`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
+
+### Protected Middleware
+
+- Root `middleware.ts` protects `/api/purchase/*`.
+- Middleware verifies `egt_access` JWT server-side.
+- On success, middleware forwards identity in internal headers:
+  - `x-auth-user-id`
+  - `x-auth-user-email`
+  - `x-auth-user-role`
+
+### Domain API Routes
+
+- `GET /api/game` (public)
+- `GET /api/product` (public, supports `?gameId=`)
+- `GET /api/purchase` (protected)
+- `POST /api/purchase` (protected)
+
+## Environment Variables
+
+Use these in `.env` and production secrets manager:
+
+- `DATABASE_URL`
+- `JWT_SECRET` (recommended, at least 32 chars)
+- `SECRET_KEY` (fallback only)
+- `APP_NAME`
+- `GOOGLE_CLIENT_ID`
+
+Notes:
+- `JWT_SECRET` is preferred over `SECRET_KEY`.
+- In production (`NODE_ENV=production`), cookies are automatically `Secure`.
+- If secrets were exposed in development or commits, rotate them immediately.
+
+## Prisma Changes
+
+### `User` additions
+
+- `name String?`
+- `avatarUrl String?`
+- `passwordHash String?`
+- `googleId String? @unique`
+- `emailVerified Boolean @default(false)`
+
+### New model
+
+- `AuthSession`
+  - stores hashed refresh token (`tokenHash`)
+  - supports expiry and revocation
+  - linked to `User` with cascade delete
+
+Migration file:
+- `prisma/migrations/20260211160000_auth_flow/migration.sql`
+
+## How To Run
+
+1. Generate Prisma client:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npx prisma generate
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Apply DB migrations:
+```bash
+npx prisma migrate dev
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Start app:
+```bash
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## API Usage Examples
 
-## Learn More
+### Register
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+curl -i -X POST http://localhost:3000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"StrongPass123","name":"Demo User"}'
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Login
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+curl -i -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"StrongPass123"}'
+```
 
-## Deploy on Vercel
+### Google Auth
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+From frontend Google Identity Services, send the ID token:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+curl -i -X POST http://localhost:3000/api/auth/google \
+  -H "Content-Type: application/json" \
+  -d '{"idToken":"<google-id-token>"}'
+```
+
+### Refresh Session
+
+```bash
+curl -i -X POST http://localhost:3000/api/auth/refresh
+```
+
+### Current User
+
+```bash
+curl -i http://localhost:3000/api/auth/me
+```
+
+### Logout
+
+```bash
+curl -i -X POST http://localhost:3000/api/auth/logout
+```
+
+## Access User in Server Components
+
+Use cookie-based server helper:
+
+```ts
+// app/dashboard/page.tsx
+import { getCurrentUserFromCookies } from "@/lib/auth/session";
+
+export default async function DashboardPage() {
+  const user = await getCurrentUserFromCookies();
+
+  if (!user) {
+    return <div>Please log in.</div>;
+  }
+
+  return <div>Welcome, {user.name ?? user.email}</div>;
+}
+```
+
+## Access User in Client Components
+
+Client components should call `/api/auth/me` (never read HTTP-only cookies directly):
+
+```tsx
+"use client";
+
+import { useEffect, useState } from "react";
+
+type MeResponse = {
+  authenticated: boolean;
+  user: { id: string; email: string; role: string; name: string | null } | null;
+};
+
+export function UserBadge() {
+  const [data, setData] = useState<MeResponse | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me", { credentials: "include" })
+      .then((res) => res.json())
+      .then((json) => setData(json))
+      .catch(() => setData({ authenticated: false, user: null }));
+  }, []);
+
+  if (!data) return <div>Loading...</div>;
+  if (!data.authenticated || !data.user) return <div>Guest</div>;
+
+  return <div>{data.user.name ?? data.user.email}</div>;
+}
+```
+
+## Testing Checklist
+
+1. Manual register/login/logout flow creates/clears cookies.
+2. Protected `/api/purchase` returns `401` when unauthenticated.
+3. Authenticated `/api/purchase` returns user-specific data.
+4. Refresh endpoint rotates refresh token and renews access token.
+5. Google sign-in creates or updates users by email.
+6. `npm run lint` passes.
+7. `npm run build` passes.
+
+## Important Do/Do Not
+
+Do:
+- Keep tokens in HTTP-only cookies.
+- Verify identity only on server (middleware + handlers).
+- Keep access tokens short-lived.
+
+Do not:
+- Store tokens in `localStorage`.
+- Trust client-only auth checks.
+- Expose secrets in frontend code.
+- Use long-lived tokens without refresh rotation.
